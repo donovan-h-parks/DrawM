@@ -21,7 +21,7 @@ if __name__ == '__main__':
         version=version(),
         author='Donovan Parks',
         author_email='donovan.parks@gmail.com',
-        packages=['drawm'],
+        packages=['drawm', 'drawm.svg', 'drawm.tree'],
         scripts=['bin/drawm'],
         package_data={'drawm' : ['VERSION', './distributions/*.txt']},
         url='http://pypi.python.org/pypi/drawm/',

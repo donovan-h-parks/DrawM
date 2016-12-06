@@ -25,7 +25,7 @@ __email__ = 'donovan.parks@gmail.com'
 __status__ = 'Development'
 
 
-from common import is_float
+from drawm.common import is_float
 
 
 def parse_label(label):

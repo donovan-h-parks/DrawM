@@ -17,41 +17,25 @@
 #                                                                             #
 ###############################################################################
 
-__prog_name__ = 'draw_tree.py'
-__prog_desc__ = 'Draw SVG representation of tree in Newick format.'
-
-__author__ = 'Donovan Parks'
-__copyright__ = 'Copyright 2016'
-__credits__ = ['Donovan Parks']
-__license__ = 'GPL3'
-__version__ = '0.0.1'
-__maintainer__ = 'Donovan Parks'
-__email__ = 'donovan.parks@gmail.com'
-__status__ = 'Development'
-
 import os
 import sys
 import math
 import logging
-import random
 import argparse
-from collections import namedtuple, defaultdict
 
 import dendropy
 import svgwrite
 
-from numpy import (mean as np_mean)
-from phylorank.rel_dist import RelativeDistance
-
+from biolib.common import check_file_exists, check_dir_exists
 from biolib.logger import logger_setup
-from biolib.taxonomy import Taxonomy
 
-from tree_props import TreeProps
-from label_props import LabelProps
-from bootstrap_props import BootstrapProps
-from lineage_props import LineageProps
-from contour_props import ContourProps
-from phylorank_props import PhyloRankProps
+from drawm.svg.tree_props import TreeProps
+from drawm.svg.label_props import LabelProps
+from drawm.svg.bootstrap_props import BootstrapProps
+from drawm.svg.lineage_props import LineageProps
+from drawm.svg.contour_props import ContourProps
+
+from drawm.tree.reroot import Reroot
 
 
 """
@@ -87,99 +71,7 @@ class OptionsParser():
         
         self.logger = logging.getLogger('timestamp')
         self.reporter = logging.getLogger('no_timestamp')
-  
-    def _render_mean_tip_bl(self, tree, test_dist):
-        """Render mean branch length to extent taxa (root to tip)."""
-
-        contour_pts = []
-        stack = [tree.seed_node]
-        while stack:
-            node = stack.pop()
-                             
-            # check if node meets mean branch length criterion
-            if node.mean_tip_bl > test_dist:
-                # node is above threshold so add children
-                for c in node.child_node_iter():
-                    stack.append(c)
-                continue
-            else:
-                # first node in lineage below threhold so
-                # draw contour along this branch
-                bl = node.mean_tip_bl
-                pbl = node.parent_node.mean_tip_bl
-                
-                index = 0
-                if bl != pbl:
-                    index = float(pbl - test_dist) / (pbl - bl)
-
-                x = node.corner_x + index * (node.x - node.corner_x)
-                y = node.corner_y + index * (node.y - node.corner_y)
-                    
-                contour_pts.append((x, y))
-  
-        # draw contour
-        path = self.dwg.path("M%d,%d" % contour_pts[0])
-        path.fill(color='none', opacity=0.5, rule='evenodd')
-        path.stroke(color='red', width=1)
-        
-        c = self.dwg.circle(center=contour_pts[0], r=self.node_radius)
-        c.stroke(color='black')
-        c.fill(color='red')
-        c = self.dwg.add(c)
-        
-        # draw contour
-        for pt in contour_pts[1:]:
-            path.push("L%d,%d" % pt)
-            
-            c = self.dwg.circle(center=pt, r=self.node_radius)
-            c.stroke(color='black')
-            c.fill(color='red')
-            c = self.dwg.add(c)
-            
-        self.dwg.add(path)
-                
-    def _render_mean_tip_bl_test(self, tree, test_dist):
-        """Render mean branch length to extent taxa."""
-
-        contour_pts = []
-        for node in tree.preorder_node_iter():
-            if not node.parent_node:
-                continue
-                
-            bl = node.mean_tip_bl
-            pbl = node.parent_node.mean_tip_bl
-            
-            index = 0
-            if bl <= test_dist <= pbl:
-                if bl != pbl:
-                    index = float(pbl - test_dist) / (pbl - bl)
-
-                x = node.corner_x + index * (node.x - node.corner_x)
-                y = node.corner_y + index * (node.y - node.corner_y)
-                    
-                contour_pts.append((x, y))
-   
-        # draw contour
-        path = self.dwg.path("M%d,%d" % contour_pts[0])
-        path.fill(color='none', opacity=0.5, rule='evenodd')
-        path.stroke(color='green', width=1)
-        
-        c = self.dwg.circle(center=contour_pts[0], r=self.node_radius)
-        c.stroke(color='black')
-        c.fill(color='green')
-        c = self.dwg.add(c)
-        
-        # draw contour
-        for pt in contour_pts[1:]:
-            path.push("L%d,%d" % pt)
-            
-            c = self.dwg.circle(center=pt, r=self.node_radius)
-            c.stroke(color='black')
-            c.fill(color='green')
-            c = self.dwg.add(c)
-            
-        self.dwg.add(path)
-            
+          
     def draw(self, options):
         """Create SVG image of tree in Newick format."""
         
@@ -215,12 +107,6 @@ class OptionsParser():
                                 options.dpi)
                                             
         bootstrap_props = BootstrapProps(os.path.join(config_dir, 'bootstrap.cfg'),
-                                            dwg,
-                                            tree_props.height,
-                                            options.dpi,
-                                            font_size)
-                                            
-        phylorank_props = PhyloRankProps(os.path.join(config_dir, 'phylorank.cfg'),
                                             dwg,
                                             tree_props.height,
                                             options.dpi,
@@ -267,8 +153,6 @@ class OptionsParser():
         tree_props.render_scale_bar()
         tree_props.render_scale_lines()
 
-        phylorank_props.render_nodes(tree)
-        
         #decorate_mean_branch_length(tree)
         #self._render_mean_tip_bl(tree, 0.7)
         #self._render_mean_tip_bl_test(tree, 0.7)
@@ -285,12 +169,28 @@ class OptionsParser():
                                                                                                 draw_tree.canvas_width, 
                                                                                                 draw_tree.canvas_height, 
                                                                                                 svg_output))
+    def reroot(self, options):
+        """Reroot tree."""
+        
+        check_file_exists(options.input_tree)
+        
+        if options.midpoint and options.outgroup:
+            self.logger.error("The 'midpoint' and 'outgroup' arguments cannot be used together.")
+            sys.exit()
+        elif not options.midpoint and not options.outgroup:
+            self.logger.error("Either the 'midpoint' or 'outgroup' argument must be specified.")
+            sys.exit()
+            
+        reroot = Reroot()
+        reroot.run(options.input_tree, options.midpoint, options.outgroup, options.output_tree)
         
     def parse_options(self, options):
         """Parse user options and call the correct pipeline(s)"""
 
         if(options.subparser_name == 'draw'):
             self.draw(options)
+        elif(options.subparser_name == 'reroot'):
+            self.reroot(options)
   
         else:
             self.logger.error('Unknown DrawM command: ' + options.subparser_name + '\n')

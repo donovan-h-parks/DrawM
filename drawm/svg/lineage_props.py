@@ -30,8 +30,8 @@ import logging
 import math
 from collections import defaultdict
 
-from svg_utils import render_label
-from newick_utils import parse_label
+from drawm.svg.svg_utils import render_label
+from drawm.tree.newick_utils import parse_label
 
 
 class LineageProps:

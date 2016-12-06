@@ -30,8 +30,8 @@ import logging
 import math
 import random
 
-from tree_utils import dist_to_ancestor
-from newick_utils import parse_label
+from drawm.tree.tree_utils import dist_to_ancestor
+from drawm.tree.newick_utils import parse_label
 
 from biolib.taxonomy import Taxonomy
 
