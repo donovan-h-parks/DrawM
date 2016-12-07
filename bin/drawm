@@ -50,6 +50,7 @@ def print_help():
     Tree manipulation:
      reroot  -> Reroot tree at mid-point or using an outgroup
      prune   -> Prune tree to a specific set of extant taxa
+     subtree -> Extract lineage from tree
      convert -> Convert file format of a phylogenetic tree 
 
   Use: drawm <command> -h for command specific help.
@@ -85,6 +86,24 @@ if __name__ == '__main__':
     reroot_parser.add_argument('--midpoint', help='width of image in inches', action='store_true')
     reroot_parser.add_argument('--outgroup', nargs='*', help='taxa comprising outgroup')
     reroot_parser.add_argument('--silent', help="suppress output of logger", action='store_true')
+    
+    # Prunt command
+    prune_parser = subparsers.add_parser('prune',
+                                            formatter_class=CustomHelpFormatter,
+                                            description='Prune tree to a specific set of extant taxa.')
+    prune_parser.add_argument('input_tree', help='input tree in Newick format')
+    prune_parser.add_argument('taxa_to_retain', help='input file specify taxa to retain')
+    prune_parser.add_argument('output_tree', help='pruned output tree')
+    prune_parser.add_argument('--silent', help="suppress output of logger", action='store_true')
+    
+    # Subtree command
+    subtree_parser = subparsers.add_parser('subtree',
+                                            formatter_class=CustomHelpFormatter,
+                                            description='Extract lineage from treeusing an outgroup.')
+    subtree_parser.add_argument('input_tree', help='input tree in Newick format')
+    subtree_parser.add_argument('output_tree', help='output subtree')
+    subtree_parser.add_argument('subtree_taxa', nargs='*', help='taxa specifying subtree')
+    subtree_parser.add_argument('--silent', help="suppress output of logger", action='store_true')
     
     
     # get and check options

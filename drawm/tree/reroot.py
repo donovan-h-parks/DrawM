@@ -106,6 +106,7 @@ class Reroot(object):
           Name of file for rerooted tree.
         """
         
+        self.logger.info('Reading input tree.')
         tree = dendropy.Tree.get_from_path(input_tree, 
                                             schema='newick', 
                                             rooting='force-rooted', 

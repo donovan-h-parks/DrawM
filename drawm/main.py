@@ -36,6 +36,8 @@ from drawm.svg.lineage_props import LineageProps
 from drawm.svg.contour_props import ContourProps
 
 from drawm.tree.reroot import Reroot
+from drawm.tree.prune import Prune
+from drawm.tree.subtree import Subtree
 
 
 """
@@ -184,6 +186,27 @@ class OptionsParser():
         reroot = Reroot()
         reroot.run(options.input_tree, options.midpoint, options.outgroup, options.output_tree)
         
+    def prune(self, options):
+        """Prune tree."""
+        
+        check_file_exists(options.input_tree)
+        check_file_exists(options.taxa_to_retain)
+        
+        prune = Prune()
+        prune.run(options.input_tree,
+                    options.taxa_to_retain,
+                    options.output_tree)
+        
+    def subtree(self, options):
+        """Extract subtree."""
+        
+        check_file_exists(options.input_tree)
+        
+        subtree = Subtree()
+        subtree.run(options.input_tree,
+                    options.output_tree,
+                    options.subtree_taxa)
+           
     def parse_options(self, options):
         """Parse user options and call the correct pipeline(s)"""
 
@@ -191,6 +214,10 @@ class OptionsParser():
             self.draw(options)
         elif(options.subparser_name == 'reroot'):
             self.reroot(options)
+        elif(options.subparser_name == 'prune'):
+            self.prune(options)
+        elif(options.subparser_name == 'subtree'):
+            self.subtree(options)
   
         else:
             self.logger.error('Unknown DrawM command: ' + options.subparser_name + '\n')
