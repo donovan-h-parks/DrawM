@@ -85,6 +85,7 @@ class Prune(object):
         tree.retain_taxa(taxa_in_tree)
         
         # write out results
+        self.logger.info('Writing output tree.')  
         tree.write_to_path(output_tree, 
                             schema='newick', 
                             suppress_rooting=True, 

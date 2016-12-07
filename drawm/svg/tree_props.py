@@ -30,12 +30,13 @@ import logging
 import math
 import random
 
-from drawm.tree.tree_utils import dist_to_ancestor
-from drawm.tree.newick_utils import parse_label
+import svgwrite
+import dendropy
 
 from biolib.taxonomy import Taxonomy
 
-import dendropy
+from drawm.tree.tree_utils import dist_to_ancestor
+from drawm.tree.newick_utils import parse_label
 
 
 class TreeProps:
@@ -294,7 +295,6 @@ class TreeProps:
             else:
                 node.num_leaves = sum([c.num_leaves for c in node.child_node_iter()])
                 
-        self.logger.info('Total number of leaves: %d' % tree.seed_node.num_leaves)
         self.logger.info('Deepest leaf node: %.2f' % self.deepest_node)
         
         # calculate position of each node in x,y plane
@@ -336,13 +336,13 @@ class TreeProps:
         elif self.display_method == 'rectangular':
             self._rectangular_layout(tree)
             
-    def _render_circular(self, tree, bootstrap_props):
+    def _render_circular(self, tree):
         """Render circular tree."""
         
         # draw all nodes as small circles and branches as lines
+        branch_group = svgwrite.container.Group(id='branches')
+        self.dwg.add(branch_group)
         for node in tree.postorder_node_iter():
-            support, taxon, auxiliary_info = parse_label(node.label)
-
             if node.parent_node:
                 # draw line to corner leading to parent
                 b = self.dwg.line(start=(node.x, node.y), 
@@ -350,7 +350,7 @@ class TreeProps:
                                     fill='black', 
                                     stroke_width=self.branch_width)
                 b.stroke(color='black')
-                self.dwg.add(b)
+                branch_group.add(b)
                 
                 # draw arc to parent
                 angle_dir = '+'
@@ -368,42 +368,38 @@ class TreeProps:
                             absolute=True)
                 p.fill(color='none')
                 p.stroke(color='black')
-                self.dwg.add(p)
+                branch_group.add(p)
             else:
                 # take special care of root
                 pass
                 
-            bootstrap_props.render(node.x, node.y, support)
-            
-    def _render_rectangular(self, tree, bootstrap_props):
+    def _render_rectangular(self, tree):
         """Render rectangular tree."""
         
         # draw all nodes as small circles and branches as lines
+        branch_group = svgwrite.container.Group(id='branches')
+        self.dwg.add(branch_group)
         for node in tree.postorder_node_iter():
-            support, taxon, auxiliary_info = parse_label(node.label)
-
             if node.parent_node:
                 # draw line from node to corner
                 b = self.dwg.line(start=(node.x, node.y), 
                                     end=(node.corner_x, node.corner_y), 
                                     fill='none')
                 b.stroke(color='black', width=self.branch_width)
-                self.dwg.add(b)
+                branch_group.add(b)
                 
                 # draw line from corner to parent
                 b = self.dwg.line(start=(node.corner_x, node.corner_y), 
                                     end=(node.parent_node.x, node.parent_node.y), 
                                     fill='none')
                 b.stroke(color='black', width=self.branch_width)
-                self.dwg.add(b)
+                branch_group.add(b)
                 
             else:
                 # take special care of root
                 pass
-                
-            bootstrap_props.render(node.x, node.y, support)
 
-    def render(self, tree, bootstrap_props):
+    def render(self, tree):
         """Render tree in x,y plane."""
         
         if not self.show_tree:
@@ -412,9 +408,9 @@ class TreeProps:
         self.logger.info('Rendering tree.')
             
         if self.display_method == 'circular':
-            self._render_circular(tree, bootstrap_props)
+            self._render_circular(tree)
         elif self.display_method == 'rectangular':
-            self._render_rectangular(tree, bootstrap_props)
+            self._render_rectangular(tree)
             
     def _scale_width_bl(self, deepest_node):
         """Calculate width of scale in terms of branch length."""
@@ -439,26 +435,31 @@ class TreeProps:
         scalebar_width = (scalebar_width_bl / self.deepest_node) * self.height
 
         # draw scale bar
+        scale_group = svgwrite.container.Group(id='scale')
+        self.dwg.add(scale_group)
         bar = self.dwg.line(start=(scalebarX, scalebarY), 
                                     end=(scalebarX+scalebar_width, scalebarY), 
                                     fill='black', 
-                                    stroke_width=self.scale_bar_width)
+                                    stroke_width=self.scale_bar_width,
+                                    id='scale-bar')
         bar.stroke(color='black')
-        self.dwg.add(bar)
+        scale_group.add(bar)
         
         left_tick = self.dwg.line(start=(scalebarX, scalebarY-0.05*scalebar_width), 
                                     end=(scalebarX, scalebarY+0.05*scalebar_width), 
                                     fill='black', 
-                                    stroke_width=self.scale_bar_width)
+                                    stroke_width=self.scale_bar_width,
+                                    id='scale-left-tick')
         left_tick.stroke(color='black')
-        self.dwg.add(left_tick)
+        scale_group.add(left_tick)
         
         right_tick = self.dwg.line(start=(scalebarX+scalebar_width, scalebarY-0.05*scalebar_width), 
                                     end=(scalebarX+scalebar_width, scalebarY+0.05*scalebar_width), 
                                     fill='black', 
-                                    stroke_width=self.scale_bar_width)
+                                    stroke_width=self.scale_bar_width,
+                                    id='scale-right-tick')
         right_tick.stroke(color='black')
-        self.dwg.add(right_tick)
+        scale_group.add(right_tick)
         
         # draw scale bar label
         if scalebar_width_bl > 1:
@@ -471,8 +472,9 @@ class TreeProps:
                                 y=[(scalebarY-0.05*scalebar_width)], 
                                 font_size=self.scale_font_size,
                                 text_anchor="middle",
-                                fill='black')
-        self.dwg.add(label)
+                                fill='black',
+                                id='scale-label')
+        scale_group.add(label)
         
     def render_scale_lines(self):
         """Render scale bar."""
@@ -486,16 +488,23 @@ class TreeProps:
         # but rounded to first significant figure
         scalebar_width_bl = self._scale_width_bl(self.deepest_node)
         scalebar_width = (scalebar_width_bl / self.deepest_node) * self.height
+        
+        scaleline_group = svgwrite.container.Group(id='scale_lines')
+        self.dwg.add(scaleline_group)
 
         radius = scalebar_width
         max_radius = self.height
         color_index = 0
+        line_index = 0
         while radius < max_radius:
             c = self.dwg.circle(center=(self.tree_x, self.tree_y), r=radius)
             c.fill('none')
-            c.stroke(color=colors[color_index], width=self.scale_bar_contour_width)
+            c.stroke(color=colors[color_index], 
+                        width=self.scale_bar_contour_width,
+                        id='scale_line_%d' % line_index)
             #c.dasharray([0.01*self.inch, 0.01*self.inch])
-            self.dwg.add(c)  
+            scaleline_group.add(c)  
             
             radius += scalebar_width
             color_index = (color_index + 1) % 2
+            line_index += 1

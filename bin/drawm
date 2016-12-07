@@ -51,6 +51,7 @@ def print_help():
      reroot  -> Reroot tree at mid-point or using an outgroup
      prune   -> Prune tree to a specific set of extant taxa
      subtree -> Extract lineage from tree
+     rename  -> Change taxa labels in tree
      convert -> Convert file format of a phylogenetic tree 
 
   Use: drawm <command> -h for command specific help.
@@ -70,7 +71,7 @@ if __name__ == '__main__':
                                             formatter_class=CustomHelpFormatter,
                                             description='Create SVG image of a phylogenetic tree.')
     draw_parser.add_argument('input_tree', help='input tree in Newick format')
-    draw_parser.add_argument('config_dir', help='directory containing configuration files')
+    draw_parser.add_argument('config_file', help='file specifying location of visual property files')
     draw_parser.add_argument('output_prefix', help='prefix for output files')
     draw_parser.add_argument('--width', help='width of image in inches', type=float, default=6.5)
     draw_parser.add_argument('--height', help='height of image in inches', type=float, default=6.5)
@@ -105,6 +106,24 @@ if __name__ == '__main__':
     subtree_parser.add_argument('subtree_taxa', nargs='*', help='taxa specifying subtree')
     subtree_parser.add_argument('--silent', help="suppress output of logger", action='store_true')
     
+    # Rename command
+    rename_parser = subparsers.add_parser('rename',
+                                            formatter_class=CustomHelpFormatter,
+                                            description='Change taxa labels in tree.')
+    rename_parser.add_argument('input_tree', help='input tree in Newick format')
+    rename_parser.add_argument('taxa_label_map', help='file specifying taxa to rename')
+    rename_parser.add_argument('output_tree', help='output tree')
+    rename_parser.add_argument('--silent', help="suppress output of logger", action='store_true')
+    
+    # Convert command
+    convert_parser = subparsers.add_parser('convert',
+                                            formatter_class=CustomHelpFormatter,
+                                            description='Convert file format of a phylogenetic tree.')
+    convert_parser.add_argument('input_tree', help='input tree')
+    convert_parser.add_argument('input_format', choices=['newick', 'nexus', 'nexml'], help='file format of input tree')
+    convert_parser.add_argument('output_format', choices=['newick', 'nexus', 'nexml'], help='file format of output tree')
+    convert_parser.add_argument('output_tree', help='output tree')
+    convert_parser.add_argument('--silent', help="suppress output of logger", action='store_true')
     
     # get and check options
     args = None

@@ -28,6 +28,10 @@ import os
 import sys
 import logging
 
+import svgwrite
+
+from drawm.tree.newick_utils import parse_label
+
 
 class BootstrapProps:
     """Visual attributed for support values."""
@@ -43,7 +47,7 @@ class BootstrapProps:
         self.font_size = font_size
         
         self.node_radius = 0.005 * self.tree_height
-        
+         
         self.show_bootstraps = False
         self.show_bootstrap_labels = False
         self.discrete_cm = []
@@ -103,43 +107,59 @@ class BootstrapProps:
             legendX = 0.1*self.inch
             legendY = self.dwg.canvas_height - self.inch - legend_step*len(self.discrete_cm)
 
-            for support, color in self.discrete_cm:
-                c = self.dwg.circle(center=(legendX, legendY), r=legend_radius)
+            bs_legend_group = svgwrite.container.Group(id='bootstrap_legend')
+            self.dwg.add(bs_legend_group)
+            for item_index, (support, color) in enumerate(self.discrete_cm):
+                c = self.dwg.circle(center=(legendX, legendY), 
+                                    r=legend_radius,
+                                    id='bootstrap_legend_symbol_%d' % item_index)
                 c.fill(color=color)
                 c.stroke(color='black')
-                self.dwg.add(c)
+                bs_legend_group.add(c)
                 
-                t = self.dwg.text('>=%d%%' % support, 
+                t = self.dwg.text('>%d%%' % support, 
                                     x=[(legendX + 1.5*legend_radius)], 
                                     y=[(legendY + 0.35*self.font_size)], 
                                     font_size=self.font_size,
-                                    fill='black')
-                self.dwg.add(t)
+                                    fill='black',
+                                    id='bootstrap_legend_label_%d' % item_index)
+                bs_legend_group.add(t)
                     
                 legendY += legend_step
 
-    def render(self, x, y, support):
+    def render(self, tree):
         """Render node based on bootstrap support."""
         
-        if not self.show_bootstraps or not support:
+        if not self.show_bootstraps:
             return
-        
-        color = None
-        if self.discrete_cm:
-            for threshold, color in self.discrete_cm:
-                if support >= threshold:
-                    color = color
-                    break
-                    
-        if self.continuous_cm:
-            max_value, max_color = self.continuous_cm[0]
-            min_value, min_color = self.continuous_cm[1]
             
-            color = self._linear_interpolate(support, min_value, max_value, min_color, max_color)
+        bs_node_group = svgwrite.container.Group(id='bootstrap_node')
+        self.dwg.add(bs_node_group)
         
-        if color:
-            c = self.dwg.circle(center=(x, y), r=self.node_radius)
-            c.stroke(color='black')
-            c.fill(color=color)
-            c = self.dwg.add(c)
+        for node in tree.postorder_node_iter():
+            support, _taxon, _auxiliary_info = parse_label(node.label)
+            if not support:
+                continue
+            
+            # get color
+            color = None
+            if self.discrete_cm:
+                for threshold, color in self.discrete_cm:
+                    if support > threshold:
+                        color = color
+                        break
+                        
+            if self.continuous_cm:
+                max_value, max_color = self.continuous_cm[0]
+                min_value, min_color = self.continuous_cm[1]
+                color = self._linear_interpolate(support, min_value, max_value, min_color, max_color)
+            
+            # render node
+            if color:
+                c = self.dwg.circle(center=(node.x, node.y), 
+                                    r=self.node_radius,
+                                    id='support_%d' % support)
+                c.stroke(color='black')
+                c.fill(color=color)
+                c = bs_node_group.add(c)
             

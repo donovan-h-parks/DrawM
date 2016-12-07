@@ -117,9 +117,11 @@ class Reroot(object):
             rooted = True
             tree.reroot_at_midpoint()
         else:
+            self.logger.info('Rerooting tree with outgroup.')
             rooted = self.root_with_outgroup(tree, outgroup)
             
         if rooted:
+            self.logger.info('Writing output tree.')  
             tree.write_to_path(output_tree, 
                                 schema='newick', 
                                 suppress_rooting=True, 

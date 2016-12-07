@@ -76,6 +76,7 @@ class Subtree(object):
         subtree = tree.extract_tree_with_taxa(mrca_leaves)
   
         # write out results
+        self.logger.info('Writing output tree.')  
         subtree.write_to_path(output_tree, 
                             schema='newick', 
                             suppress_rooting=True, 

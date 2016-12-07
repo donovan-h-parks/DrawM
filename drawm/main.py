@@ -24,20 +24,16 @@ import logging
 import argparse
 
 import dendropy
-import svgwrite
 
 from biolib.common import check_file_exists, check_dir_exists
 from biolib.logger import logger_setup
 
-from drawm.svg.tree_props import TreeProps
-from drawm.svg.label_props import LabelProps
-from drawm.svg.bootstrap_props import BootstrapProps
-from drawm.svg.lineage_props import LineageProps
-from drawm.svg.contour_props import ContourProps
+from drawm.draw_tree import DrawTree
 
 from drawm.tree.reroot import Reroot
 from drawm.tree.prune import Prune
 from drawm.tree.subtree import Subtree
+from drawm.tree.rename import Rename
 
 
 """
@@ -78,99 +74,16 @@ class OptionsParser():
         """Create SVG image of tree in Newick format."""
         
         check_file_exists(options.input_tree)
-        check_dir_exists(options.config_dir)
+        check_file_exists(options.config_file)
         
-        tree_name = os.path.split(os.path.basename(options.input_tree))[0]
-
-        # setup SVG file
-        canvas_width = options.width * options.dpi
-        canvas_height = options.height * options.dpi
-        font_size = int(8 * (float(dpi)/90) + 0.5)
+        draw_tree = DrawTree()
+        draw_tree.render(options.input_tree,
+                            options.config_file,
+                            options.width,
+                            options.height,
+                            options.dpi,
+                            options.output_prefix)
         
-        self.logger.info('Setting up SVG file.')
-        svg_output = output_prefix + '.svg'
-        dwg = svgwrite.Drawing(filename=svg_output, 
-                                    size=(canvas_width, canvas_height))
-        dwg.set_desc(title='DrawM rendering of %d' % tree_name, desc=tree_name)
-        dwg.canvas_width = canvas_width
-        dwg.canvas_height = canvas_height
-        
-        background = "rgb(" + str(255) + "," + str(255) + "," + str(255) + ")"
-        self.dwg.add(dwg.rect(insert=(0, 0), 
-                        size=('100%', '100%'), 
-                        rx=None, ry=None, 
-                        fill=background, 
-                        stroke='none'))
-                        
-        # read configuration files
-        self.logger.info('Reading configuration files.')
-        tree_props = TreeProps(os.path.join(config_dir, 'tree.cfg'),
-                                dwg,
-                                options.dpi)
-                                            
-        bootstrap_props = BootstrapProps(os.path.join(config_dir, 'bootstrap.cfg'),
-                                            dwg,
-                                            tree_props.height,
-                                            options.dpi,
-                                            font_size)
-                                            
-        contour_props = ContourProps(os.path.join(config_dir, 'aai_contours.cfg'),
-                                        dwg,
-                                        tree_props.height,
-                                        options.dpi,
-                                        font_size)
-                                            
-        lineage_props = LineageProps(os.path.join(config_dir, 'lineages.cfg'),
-                                        dwg,
-                                        tree_props.height,
-                                        options.dpi,
-                                        font_size)
-                                            
-        label_props = LabelProps(os.path.join(config_dir, 'labels.cfg'),
-                                        dwg,
-                                        tree_props.height,
-                                        options.dpi,
-                                        font_size)
-        
-        # read and ladderize tree
-        tree = tree_props.read_tree(input_tree)
-        tree_props.layout(tree)
-                                           
-        contour_props.decorate(tree)
-                                                    
-        bootstrap_props.render_legend()
-        
-        rd = RelativeDistance()
-        rd.decorate_rel_dist(tree)
-        
-        phylorank_props.render_contour(tree)
-        phylorank_props.render_legend()
-        
-        contour_props.render_contour(tree)
-        contour_props.render_legend()
-        
-        lineage_props.render(tree)
-   
-        tree_props.render(tree, bootstrap_props)
-        tree_props.render_scale_bar()
-        tree_props.render_scale_lines()
-
-        #decorate_mean_branch_length(tree)
-        #self._render_mean_tip_bl(tree, 0.7)
-        #self._render_mean_tip_bl_test(tree, 0.7)
-        
-        label_props.render(tree)
-        
-        self.logger.info('Saving SVG image.')
-        dwg.save()
-        
-        self.logger.info('Saving PNG image.')
-        png_output = output_prefix + '.png'
-        os.system('"C:\Program Files\Inkscape\inkscape.exe" -e %s -d %d -z -w %d -h %d %s' % (png_output,
-                                                                                                self.dpi,
-                                                                                                draw_tree.canvas_width, 
-                                                                                                draw_tree.canvas_height, 
-                                                                                                svg_output))
     def reroot(self, options):
         """Reroot tree."""
         
@@ -206,6 +119,33 @@ class OptionsParser():
         subtree.run(options.input_tree,
                     options.output_tree,
                     options.subtree_taxa)
+                    
+    def rename(self, options):
+        """Rename taxa."""
+        
+        check_file_exists(options.input_tree)
+        
+        rename = Rename()
+        rename.run(options.input_tree,
+                    options.taxa_label_map,
+                    options.output_tree)
+                    
+    def convert(self, options):
+        """Convert format of tree."""
+        
+        check_file_exists(options.input_tree)
+        
+        self.logger.info('Reading input tree.')
+        tree = dendropy.Tree.get_from_path(options.input_tree, 
+                                            schema=options.input_format,
+                                            preserve_underscores=True)
+        
+        self.logger.info('Writing output tree.')        
+        tree.write_to_path(options.output_tree, 
+                            schema=options.output_format, 
+                            suppress_rooting=True, 
+                            unquoted_underscores=True)
+        
            
     def parse_options(self, options):
         """Parse user options and call the correct pipeline(s)"""
@@ -218,7 +158,10 @@ class OptionsParser():
             self.prune(options)
         elif(options.subparser_name == 'subtree'):
             self.subtree(options)
-  
+        elif(options.subparser_name == 'rename'):
+            self.rename(options)
+        elif(options.subparser_name == 'convert'):
+            self.convert(options)
         else:
             self.logger.error('Unknown DrawM command: ' + options.subparser_name + '\n')
             sys.exit()

@@ -30,6 +30,8 @@ import sys
 import logging
 import math
 
+import svgwrite
+
 from drawm.svg.svg_utils import render_label
 from drawm.tree.newick_utils import parse_label
 
@@ -89,25 +91,31 @@ class LabelProps:
     
         font_size = 0.5*self.font_size
         
-        for node in tree.preorder_node_iter():
-            support, taxon, auxiliary_info = parse_label(node.label)
-            if taxon and taxon in ['p__Patescibacteria', 'p__Firmicutes', 'p__Actinobacteria', 'p__Proteobacteria', 'p__Bacteroidetes']:
-                dx = node.x - node.corner_x
-                dy = node.y - node.corner_y
-                angle = math.atan2(dy, dx)
-                angle_deg = math.degrees(angle)
-                render_label(self.dwg, 
-                                node.x, 
-                                node.y, 
-                                angle_deg, 
-                                taxon, 
-                                self.internal_font_size, 
-                                self.internal_font_color)
+        label_group = svgwrite.container.Group(id='internal_node_labels')
+        self.dwg.add(label_group)
+        
+        for node in tree.preorder_node_iter(lambda n: not n.is_leaf()):
+            _support, taxon, _auxiliary_info = parse_label(node.label)
+            dx = node.x - node.corner_x
+            dy = node.y - node.corner_y
+            angle = math.atan2(dy, dx)
+            angle_deg = math.degrees(angle)
+            render_label(self.dwg, 
+                            node.x, 
+                            node.y, 
+                            angle_deg, 
+                            taxon, 
+                            self.internal_font_size, 
+                            self.internal_font_color,
+                            label_group)
 
     def _render_leaf_labels(self, tree):
         """"Render labels for extant taxa."""
         
         font_size = 0.5*self.font_size
+        
+        label_group = svgwrite.container.Group(id='leaf_node_labels')
+        self.dwg.add(label_group)
         
         for i, leaf in enumerate(tree.leaf_node_iter()):
             dx = leaf.x - leaf.corner_x
@@ -120,7 +128,8 @@ class LabelProps:
                             angle_deg, 
                             leaf.taxon.label, 
                             self.leaf_font_size, 
-                            self.leaf_font_color)
+                            self.leaf_font_color,
+                            label_group)
                     
     def render(self, tree):
         """Render labels."""

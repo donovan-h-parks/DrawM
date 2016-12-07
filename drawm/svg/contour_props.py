@@ -29,6 +29,8 @@ import sys
 import logging
 import math
 
+import svgwrite
+
 
 class ContourProps:
     """Visual attributed for contours."""
@@ -122,19 +124,25 @@ class ContourProps:
         
         legendX = 0.1*self.inch
         legendY = 0.1*self.inch
+        
+        legend_group = svgwrite.container.Group(id='contour_legend')
+        self.dwg.add(legend_group)
 
-        for outer_threshold, inner_threshold, color in self.contour_cm:
-            c = self.dwg.circle(center=(legendX, legendY), r=legend_radius)
+        for item_index, (outer_threshold, inner_threshold, color) in enumerate(self.contour_cm):
+            c = self.dwg.circle(center=(legendX, legendY), 
+                                r=legend_radius,
+                                id='contour_legend_symbol_%d' % item_index)
             c.fill(color=color)
             c.stroke(color='black')
-            self.dwg.add(c)
+            legend_group.add(c)
 
             t = self.dwg.text('%d to %d%%' % (inner_threshold, outer_threshold), 
                                 x=[(legendX + 1.5*legend_radius)], 
                                 y=[(legendY + 0.35*self.font_size)], 
                                 font_size=self.font_size,
-                                fill='black')
-            self.dwg.add(t)
+                                fill='black',
+                                id='contour_legend_label_%d' % item_index)
+            legend_group.add(t)
                 
             legendY += legend_step
             
@@ -184,14 +192,17 @@ class ContourProps:
         
         if not self.show_contours:
             return
+            
+        contour_group = svgwrite.container.Group(id='contour')
+        self.dwg.add(contour_group)
         
-        for outer_threshold, inner_threshold, color in self.contour_cm: 
+        for index, (outer_threshold, inner_threshold, color) in enumerate(self.contour_cm): 
             outer_pts, outer_nodes = self._contour_pts(tree, outer_threshold)
             cheaty_inner_pts, cheaty_inner_nodes = self._contour_pts(tree, outer_threshold, inner_threshold)
             inner_pts, inner_nodes = self._contour_pts(tree, inner_threshold)
 
             # draw outer contour
-            path = self.dwg.path("M%d,%d" % outer_pts[0])
+            path = self.dwg.path("M%d,%d" % outer_pts[0], id='contour_%d' % index)
             path.fill(color=color, opacity=0.5, rule='evenodd')
             path.stroke(color=color, width=self.contour_width)
 
@@ -213,5 +224,5 @@ class ContourProps:
             # connect the inner and outer contours
             path.push("L%d,%d" % outer_pts[0])
                 
-            self.dwg.add(path)
+            contour_group.add(path)
 

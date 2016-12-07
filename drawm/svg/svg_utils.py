@@ -29,7 +29,7 @@ def color_str(r, g, b):
     return "rgb(%d,%d,%d)" % (int(r+0.5), int(g+0.5), int(b+0.5))
     
     
-def render_label(dwg, x, y, angle, label, font_size, color):
+def render_label(dwg, x, y, angle, label, font_size, color, group=None):
     """Render label."""
     
     # make sure angle is between -180 and 180
@@ -77,14 +77,20 @@ def render_label(dwg, x, y, angle, label, font_size, color):
     label_x = x + x_offset_dir*0.5*font_size
     label_y = y + y_offset_dir*0.35*font_size
     t = dwg.text(label, 
-                        x=[(label_x)], 
-                        y=[(label_y)], 
-                        font_size=font_size,
-                        text_anchor=text_anchor,
-                        direction=direction,
-                        #dominant_baseline="central",
-                        #dy=['5.3em'],
-                        fill=color)
+                    x=[(label_x)], 
+                    y=[(label_y)], 
+                    font_size=font_size,
+                    text_anchor=text_anchor,
+                    direction=direction,
+                    #dominant_baseline="central",
+                    #dy=['5.3em'],
+                    fill=color,
+                    id=label)
 
     t.rotate(angle, (label_x, label_y))
-    dwg.add(t)
+    
+    if group:
+        group.add(t)
+    else:
+        # add to 'root' group
+        dwg.add(t)

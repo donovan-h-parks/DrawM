@@ -30,6 +30,8 @@ import logging
 import math
 from collections import defaultdict
 
+import svgwrite
+
 from drawm.svg.svg_utils import render_label
 from drawm.tree.newick_utils import parse_label
 
@@ -99,12 +101,12 @@ class LineageProps:
     def _render_outlines(self, tree):
         """Color named lineages."""
         
-        for node in tree.preorder_node_iter():
+        for node in tree.preorder_node_iter(lambda n: not n.is_leaf()):
             support, taxon, auxiliary_info = parse_label(node.label)
             if taxon in self.lineage_map:
                 color, alpha, stroke_width = self.lineage_map[taxon]
                 
-                path = self.dwg.path()
+                path = self.dwg.path(id=taxon)
                 path.fill(color=color, opacity=alpha)
                 path.stroke(color=color, width=stroke_width)
 
@@ -166,13 +168,16 @@ class LineageProps:
     def _render_arc_labels(self, tree):
         """Color named lineages."""
         
+        lineage_arc_group = svgwrite.container.Group(id='lineage_arc')
+        self.dwg.add(lineage_arc_group)
+        
         rel_depth = 1.00
         label_depth = defaultdict(int)
         for node in tree.postorder_node_iter():
             support, taxon, auxiliary_info = parse_label(node.label)
             
             if node.is_leaf():
-                label_depth[node.id] = 00
+                label_depth[node.id] = 0
                 continue
             
             max_child_label_depth = 0
@@ -217,7 +222,7 @@ class LineageProps:
                 end_x = depth * math.cos(end_angle_rad) + 0.5*self.dwg.canvas_width
                 end_y = depth * math.sin(end_angle_rad) + 0.5*self.dwg.canvas_height
                     
-                p = self.dwg.path('m%d,%d' % (start_x, start_y))
+                p = self.dwg.path('m%d,%d' % (start_x, start_y), id=taxon)
                 p.push_arc(target=(end_x, end_y), 
                             rotation=0, 
                             r=depth,
@@ -226,7 +231,7 @@ class LineageProps:
                             absolute=True)
                 p.fill(color='none')
                 p.stroke(color=color, width=stroke_width)
-                self.dwg.add(p)
+                lineage_arc_group.add(p)
                 
                 label_angle = (0.5*(start_leaf.angle + end_leaf.angle)) % 360
                 label_angle_rad = math.radians(label_angle)
@@ -238,5 +243,6 @@ class LineageProps:
                                 label_angle, 
                                 taxon, 
                                 self.font_size, 
-                                self.font_color)
+                                self.font_color,
+                                lineage_arc_group)
    
