@@ -33,16 +33,20 @@ import random
 import svgwrite
 import dendropy
 
+from numpy import (mean as np_mean,
+                    percentile as np_percentile)
+
 from biolib.taxonomy import Taxonomy
 
-from drawm.tree.tree_utils import dist_to_ancestor
+from drawm.tree.tree_utils import dist_to_ancestor, find_node
 from drawm.tree.newick_utils import parse_label
+from drawm.svg.svg_utils import render_label
 
 
 class TreeProps:
     """Visual attributed for displaying tree."""
 
-    def __init__(self, config_file, dwg, inch):
+    def __init__(self, tree_config_file, collapse_config_file, dwg, inch):
         """Read attributes from config file."""
         
         self.logger = logging.getLogger('timestamp')
@@ -52,7 +56,18 @@ class TreeProps:
         
         self.tree_x = 0.5 * self.dwg.canvas_width
         self.tree_y = 0.5 * self.dwg.canvas_height
-
+        
+        self._tree_config_file(tree_config_file)      
+        self._collapse_config_file(collapse_config_file)
+          
+        # modify values for specific visual attributes
+        if self.display_method == 'CIRCULAR':
+            self.width = 0.5*self.width
+            self.height = self.width
+            
+    def _tree_config_file(self, config_file):
+        """Read tree config file."""
+        
         self.show_tree = False
         self.display_method = None
         self.ladderize = None
@@ -92,10 +107,13 @@ class TreeProps:
                     self.show_tree = (values[0] == 'True')
                 elif attribute == 'display_method':
                     self.display_method = values[0]
+                    assert self.display_method in ['CIRCULAR', 'RECTANGULAR']
                 elif attribute == 'ladderize':
                     self.ladderize = values[0]
+                    assert self.ladderize in ['DEFAULT', 'TOP', 'BOTTOM']
                 elif attribute == 'branch_transformation':
                     self.branch_transformation = values[0]
+                    assert self.branch_transformation in ['NONE', 'CLADOGRAM']
                 elif attribute == 'width':
                     self.width = float(values[0])*self.dwg.canvas_width
                 elif attribute == 'height':
@@ -120,12 +138,72 @@ class TreeProps:
                     self.scale_bar_contour_width = float(values[0])
                 elif attribute == 'prune_by_taxon':
                     self.prune_by_taxon = (values[0], int(values[1]))
+                else:
+                    self.logger.warning('[TreeProps] Unexpected attribute: %s' % attribute)
                     
-        # modify values for specific visual attributes
-        if self.display_method == 'circular':
-            self.width = 0.5*self.width
-            self.height = self.width
+    def _collapse_config_file(self, config_file):
+        """Read collapse lineage config file."""
+        
+        self.show_collapsed = False
+        
+        self.collapse_display_method = None
+        self.collapse_branch1_percentile = None
+        self.collapse_branch2_percentile = None
+        self.collapse_wedge_base_method = None
+        self.collapse_wedge_scaling = None
+       
+        self.collapse_show_labels = False
+        self.collapse_label_position = None
+        self.collapse_show_leaf_count = False
+        self.collapse_font_size = None
+        self.collapse_font_color = None
+        
+        self.collapse_map = {}
+
+        with open(config_file) as f:
+            prop_type = f.readline().strip()
             
+            if prop_type != 'COLLAPSE':
+                self.logger.error("[TreeProps] Unexpected property type '%s' in %s." % (prop_type, config_file))
+                sys.exit()
+            
+            for line in f:
+                if line[0] == '#' or not line.strip():
+                    continue
+                    
+                fields = line.strip().split('\t')
+                attribute, values = fields[0], fields[1:]
+                if attribute == 'show_collapsed':
+                    self.show_collapsed = (values[0] == 'True')
+                elif attribute == 'display_method':
+                    self.collapse_display_method = values[0]
+                    assert self.collapse_display_method in ['WEDGE', 'TRIANGLE']
+                elif attribute == 'branch1_percentile':
+                    self.collapse_branch1_percentile = float(values[0])
+                elif attribute == 'branch2_percentile':
+                    self.collapse_branch2_percentile = float(values[0])
+                elif attribute == 'wedge_base_method':
+                    self.collapse_wedge_base_method = values[0]
+                    assert self.collapse_wedge_base_method in ['PROPORTIONAL', 'FIXED_WIDTH', 'LOG']
+                elif attribute == 'wedge_scaling':
+                    self.collapse_wedge_scaling = float(values[0])
+                elif attribute == 'show_labels':
+                    self.collapse_show_labels = (values[0] == 'True')
+                elif attribute == 'label_position':
+                    self.collapse_label_position = values[0]
+                    assert self.collapse_label_position in ['INTERNAL', 'EXTERNAL']
+                elif attribute == 'show_leaf_count':
+                    self.collapse_show_leaf_count = (values[0] == 'True')
+                elif attribute == 'font_size':
+                    self.collapse_font_size = int(values[0])
+                elif attribute == 'font_color':
+                    self.collapse_font_color = values[0]
+                elif attribute == 'collapse_lineage':
+                    lineage_name, color, alpha, stroke_width, stroke_color = values
+                    self.collapse_map[lineage_name] = (lineage_name, color, alpha, int(stroke_width), stroke_color)
+                else:
+                    self.logger.warning('[TreeProps] Unexpected attribute: %s' % attribute)
+                    
     def _cladogram(self, tree):
         """Transform branch lengths to form a cladogram."""
         
@@ -185,12 +263,20 @@ class TreeProps:
                                             rooting='force-rooted',
                                             preserve_underscores=True)
                                             
-        # give each node an ID that is recoverable in different programs
+        tree.display_method = self.display_method
+        tree.width = self.width
+        tree.height = self.height
+                                            
+        # set default node attributes
         num_taxa = 0
         for tree_id, node in enumerate(tree.preorder_node_iter()):
             node.id = tree_id
             if node.is_leaf():
                 num_taxa += 1
+                
+            node.is_collapsed = False
+            node.is_collapsed_root = False
+            node.angle = 0
             
         self.logger.info('Tree contains %d taxa.' % num_taxa)
             
@@ -199,13 +285,13 @@ class TreeProps:
             self._prune(tree)
                     
         # ladderize tree as requested
-        if self.ladderize == 'top':
+        if self.ladderize == 'TOP':
             tree.ladderize(ascending=False)
-        elif self.ladderize == 'bottom':
+        elif self.ladderize == 'BOTTOM':
             tree.ladderize(ascending=True)
             
         # transform branches
-        if self.branch_transformation == 'cladogram':
+        if self.branch_transformation == 'CLADOGRAM':
             self._cladogram(tree)
             
         return tree
@@ -279,6 +365,67 @@ class TreeProps:
             node.corner_x = corner_x
             node.corner_y = corner_y
             
+    def _collapsed_leaves(self, node):
+        """Number of leaves spanned by collapsed lineage."""
+    
+        num_collapsed_leaves = 0
+        if self.collapse_wedge_base_method == 'FIXED_WIDTH':
+            num_collapsed_leaves = self.collapse_wedge_scaling
+        elif self.collapse_wedge_base_method == 'PROPORTIONAL':
+            num_collapsed_leaves = max(2, self.collapse_wedge_scaling * node.num_leaves)
+        elif self.collapse_wedge_base_method == 'LOG':
+            num_collapsed_leaves = max(2, math.log(node.num_leaves, self.collapse_wedge_scaling))
+        else:
+            self.logger.error('Unrecognized wedge base method: %s' % self.collapse_wedge_base_method)
+            sys.exit(-1)
+
+        return num_collapsed_leaves
+            
+    def _collapse(self, tree):
+        """Mark nodes in collapsed lineages."""
+        
+        if not self.show_collapsed:
+            return
+            
+        # find nodes to be collapsed
+        new_collapse_map = {}
+        for lineage_name, data in self.collapse_map.iteritems():
+            node = find_node(tree, lineage_name)
+
+            if node:
+                new_collapse_map[node] = data
+            else:
+                self.logger.warning('Failed to identify node with label: %s.' % lineage_name)
+            
+        self.collapse_map = new_collapse_map
+           
+        # mark nodes in collapsed linages 
+        num_leaves_layout = 0
+        num_collapsed_lineages = 0
+           
+        stack = []
+        stack.append(tree.seed_node)
+        while stack:
+            node = stack.pop()
+            node.is_collapsed = False
+            node.is_collapsed_root = False
+            
+            if node in self.collapse_map:
+                num_collapsed_lineages += 1
+                node.is_collapsed_root = True 
+                for n in node.preorder_iter(lambda n: n != node):
+                    n.is_collapsed = True
+                    
+                num_leaves_layout += self._collapsed_leaves(node)
+            else:
+                for c in node.child_node_iter():
+                    stack.append(c)
+                    
+                if node.is_leaf():
+                    num_leaves_layout += 1
+
+        return num_leaves_layout, num_collapsed_lineages
+            
     def _rectangular_layout(self, tree):
         """Calculate position of nodes in rectangular tree layout."""
         
@@ -297,26 +444,65 @@ class TreeProps:
                 
         self.logger.info('Deepest leaf node: %.2f' % self.deepest_node)
         
+        # mark nodes in collapsed lineages
+        num_leaves_layout, num_collapsed_lineages = self._collapse(tree)
+        self.logger.info('Collapsed %d lineages.' % num_collapsed_lineages)
+
         # calculate position of each node in x,y plane
         self.logger.info('Calculating position of each node.')
         border_x = 0.5*(self.dwg.canvas_width - self.width)
         border_y = 0.5*(self.dwg.canvas_height - self.height)
-        y_step = float(self.height) / (tree.seed_node.num_leaves - 1.0)
+        y_step = float(self.height) / (num_leaves_layout - 1.0)
         y_pos = border_y
+        in_collapsed_lineage = set()
         for node in tree.postorder_node_iter():
             depth = dist_to_ancestor(node, tree.seed_node)
             node.rel_depth = (depth / self.deepest_node ) * self.width    
             node.x = node.rel_depth + border_x
             
             if node.is_leaf():
-                node.y = y_pos
-                y_pos += y_step
+                if node.is_collapsed:
+                    if node in in_collapsed_lineage:
+                        # set node at midpoint of collapsed lineage
+                        in_collapsed_lineage.remove(node)
+                        node.y = collapse_y
+                        node.collapse_height = collapsed_height
+                    else:
+                        # first leaf in collapsed lineage so
+                        # find root of collapsed subtree
+                        collapse_root = node.parent_node
+                        while not collapse_root.is_collapsed_root:
+                            collapse_root = collapse_root.parent_node
+
+                        # mark all leaves in this collapsed lineage
+                        in_collapsed_lineage = set([leaf for leaf in collapse_root.leaf_iter()])
+                        in_collapsed_lineage.remove(node)
+       
+                        # calculate height of collapsed lineage
+                        collapsed_height = (self._collapsed_leaves(collapse_root) - 1) * y_step
+                        collapse_root.collapsed_height = collapsed_height
+                        node.collapsed_height = collapsed_height
+                        
+                        # set node at midpoint of collapsed lineage
+                        collapse_y = y_pos + 0.5*collapsed_height
+                        node.y = collapse_y
+
+                        # advance passed the collapsed lineage
+                        y_pos += y_step + collapsed_height
+                else:
+                    node.y = y_pos
+                    y_pos += y_step
             else:
-                # put node at midpoint of its children
-                y_children = []
-                for c in node.child_node_iter():
-                    y_children.append(c.y)
-                node.y = np_mean(y_children)
+                if node.is_collapsed:
+                    # set node at midpoint of collapsed lineage
+                    node.y = node.child_node_iter().next().y
+                else:
+                    
+                    # put node at midpoint of its children
+                    y_children = []
+                    for c in node.child_node_iter():
+                        y_children.append(c.y)
+                    node.y = np_mean(y_children)
                 
         # layout corners  
         for node in tree.postorder_node_iter():
@@ -331,9 +517,9 @@ class TreeProps:
     def layout(self, tree):
         """Layout tree."""
         
-        if self.display_method == 'circular':
+        if self.display_method == 'CIRCULAR':
             self._circular_layout(tree)
-        elif self.display_method == 'rectangular':
+        elif self.display_method == 'RECTANGULAR':
             self._rectangular_layout(tree)
             
     def _render_circular(self, tree):
@@ -344,13 +530,11 @@ class TreeProps:
         self.dwg.add(branch_group)
         for node in tree.postorder_node_iter():
             if node.parent_node:
-                # draw line to corner leading to parent
-                b = self.dwg.line(start=(node.x, node.y), 
-                                    end=(node.corner_x, node.corner_y), 
-                                    fill='black', 
-                                    stroke_width=self.branch_width)
-                b.stroke(color='black')
-                branch_group.add(b)
+                # draw line to corner leading to parent                  
+                branch = self.dwg.path("M%d,%d" % (node.x, node.y))
+                branch.fill(color='none')
+                branch.stroke(color='black', width=self.branch_width)
+                branch.push("L%d,%d" % (node.corner_x, node.corner_y))
                 
                 # draw arc to parent
                 angle_dir = '+'
@@ -359,45 +543,97 @@ class TreeProps:
                     # draw angle counter-clockwise (i.e., negative) direction
                     angle_dir = '-'
                     
-                p = self.dwg.path('m%d,%d' % (node.corner_x, node.corner_y))
-                p.push_arc(target=(node.parent_node.x, node.parent_node.y), 
-                            rotation=0, 
-                            r=node.parent_node.rel_depth,
-                            large_arc=False,
-                            angle_dir=angle_dir,
-                            absolute=True)
-                p.fill(color='none')
-                p.stroke(color='black')
-                branch_group.add(p)
+                branch.push_arc(target=(node.parent_node.x, node.parent_node.y), 
+                                rotation=0, 
+                                r=node.parent_node.rel_depth,
+                                large_arc=False,
+                                angle_dir=angle_dir,
+                                absolute=True)
+                branch_group.add(branch)
             else:
                 # take special care of root
                 pass
+                
+    def _render_collapsed_rectangular(self, node, collapsed_group):
+        """Render collapsed lineage in rectangular tree."""
+        
+        # get length of branches
+        leaf_dists = []
+        for leaf in node.preorder_iter(lambda n: n.is_leaf()):
+            leaf_dists.append(dist_to_ancestor(leaf, node))
+                                    
+        branch1, branch2 = np_percentile(leaf_dists, 
+                                            [self.collapse_branch1_percentile, 
+                                            self.collapse_branch2_percentile])
+        branch1 = (branch1/self.deepest_node) * self.height
+        branch2 = (branch2/self.deepest_node) * self.height
+        
+        if self.collapse_display_method == 'TRIANGLE':
+            branch2 = 0
+
+        # render collapsed lineage
+        _support, taxon, _aux_info = parse_label(node.label)
+        lineage_name, color, alpha, stroke_width, stroke_color = self.collapse_map[node]
+
+        pts = []
+        pts.append((node.x, node.y+0.5*node.collapsed_height))
+        pts.append((node.x, node.y-0.5*node.collapsed_height))
+        pts.append((node.x + branch1, node.y-0.5*node.collapsed_height))
+        pts.append((node.x + branch2, node.y+0.5*node.collapsed_height))
+        
+        p = self.dwg.polygon(points=pts)
+        p.fill(color=color, opacity=alpha)
+        p.stroke(color=stroke_color, width=stroke_width)
+        collapsed_group.add(p)
+        
+        if self.collapse_show_labels:
+            if self.collapse_label_position == 'INTERNAL':
+                label_x = node.x + 0.01*self.inch
+            elif self.collapse_label_position == 'EXTERNAL':
+                label_x = max(node.x + branch1, node.x + branch2)
+               
+            label = lineage_name
+            if self.collapse_show_leaf_count:
+               label += ' [%d]' % len(leaf_dists)
+            
+            render_label(self.dwg, 
+                            label_x, 
+                            node.y, 
+                            0, 
+                            label, 
+                            self.collapse_font_size, 
+                            self.collapse_font_color,
+                            collapsed_group)
                 
     def _render_rectangular(self, tree):
         """Render rectangular tree."""
         
-        # draw all nodes as small circles and branches as lines
+        # draw all tree branches
         branch_group = svgwrite.container.Group(id='branches')
         self.dwg.add(branch_group)
+        
+        collapsed_group = svgwrite.container.Group(id='collapsed_lineages')
+        self.dwg.add(collapsed_group)
+        
         for node in tree.postorder_node_iter():
-            if node.parent_node:
-                # draw line from node to corner
-                b = self.dwg.line(start=(node.x, node.y), 
-                                    end=(node.corner_x, node.corner_y), 
-                                    fill='none')
-                b.stroke(color='black', width=self.branch_width)
-                branch_group.add(b)
+            if node == tree.seed_node:
+                continue
                 
-                # draw line from corner to parent
-                b = self.dwg.line(start=(node.corner_x, node.corner_y), 
-                                    end=(node.parent_node.x, node.parent_node.y), 
-                                    fill='none')
-                b.stroke(color='black', width=self.branch_width)
-                branch_group.add(b)
+            if node.is_collapsed:
+                continue
                 
-            else:
-                # take special care of root
-                pass
+            # draw line from node to corner
+            branch = self.dwg.path("M%d,%d" % (node.x, node.y))
+            branch.fill(color='none')
+            branch.stroke(color='black', width=self.branch_width)
+            branch.push("L%d,%d" % (node.corner_x, node.corner_y))
+                  
+            # draw line from corner to parent
+            branch.push("L%d,%d" % (node.parent_node.x, node.parent_node.y))
+            branch_group.add(branch)
+            
+            if node.is_collapsed_root:
+                self._render_collapsed_rectangular(node, collapsed_group)
 
     def render(self, tree):
         """Render tree in x,y plane."""
@@ -407,9 +643,9 @@ class TreeProps:
             
         self.logger.info('Rendering tree.')
             
-        if self.display_method == 'circular':
+        if self.display_method == 'CIRCULAR':
             self._render_circular(tree)
-        elif self.display_method == 'rectangular':
+        elif self.display_method == 'RECTANGULAR':
             self._render_rectangular(tree)
             
     def _scale_width_bl(self, deepest_node):
@@ -497,11 +733,12 @@ class TreeProps:
         color_index = 0
         line_index = 0
         while radius < max_radius:
-            c = self.dwg.circle(center=(self.tree_x, self.tree_y), r=radius)
+            c = self.dwg.circle(center=(self.tree_x, self.tree_y), 
+                                r=radius,
+                                id='scale_line_%d' % line_index)
             c.fill('none')
             c.stroke(color=colors[color_index], 
-                        width=self.scale_bar_contour_width,
-                        id='scale_line_%d' % line_index)
+                        width=self.scale_bar_contour_width)
             #c.dasharray([0.01*self.inch, 0.01*self.inch])
             scaleline_group.add(c)  
             

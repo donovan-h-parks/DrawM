@@ -56,9 +56,11 @@ class LabelProps:
         
         self.internal_font_size = None
         self.internal_font_color = None
+        self.internal_sample_rate = 1
         
         self.leaf_font_size = None
         self.leaf_font_color = None
+        self.leaf_sample_rate = 1
 
         with open(config_file) as f:
             prop_type = f.readline().strip()
@@ -81,10 +83,16 @@ class LabelProps:
                     self.internal_font_size = int(values[0])
                 elif attribute == 'internal_font_color':
                     self.internal_font_color = values[0]
+                elif attribute == 'internal_sample_rate':
+                    self.internal_sample_rate = int(values[0])
                 elif attribute == 'leaf_font_size':
                     self.leaf_font_size = int(values[0])
                 elif attribute == 'leaf_font_color':
                     self.leaf_font_color = values[0]
+                elif attribute == 'leaf_sample_rate':
+                    self.leaf_sample_rate = int(values[0])
+                else:
+                    self.logger.warning('[LabelProps] Unexpected attribute: %s' % attribute)
      
     def _render_internal_labels(self, tree):
         """Render internal labels."""
@@ -94,16 +102,20 @@ class LabelProps:
         label_group = svgwrite.container.Group(id='internal_node_labels')
         self.dwg.add(label_group)
         
+        node_count = -1
         for node in tree.preorder_node_iter(lambda n: not n.is_leaf()):
+            if node.is_collapsed:
+                continue
+                
+            node_count += 1
+            if node_count % self.internal_sample_rate:
+                continue
+                
             _support, taxon, _auxiliary_info = parse_label(node.label)
-            dx = node.x - node.corner_x
-            dy = node.y - node.corner_y
-            angle = math.atan2(dy, dx)
-            angle_deg = math.degrees(angle)
             render_label(self.dwg, 
                             node.x, 
                             node.y, 
-                            angle_deg, 
+                            node.angle, 
                             taxon, 
                             self.internal_font_size, 
                             self.internal_font_color,
@@ -117,15 +129,19 @@ class LabelProps:
         label_group = svgwrite.container.Group(id='leaf_node_labels')
         self.dwg.add(label_group)
         
-        for i, leaf in enumerate(tree.leaf_node_iter()):
-            dx = leaf.x - leaf.corner_x
-            dy = leaf.y - leaf.corner_y
-            angle = math.atan2(dy, dx)
-            angle_deg = math.degrees(angle)
+        node_count = -1
+        for leaf in tree.leaf_node_iter():
+            if leaf.is_collapsed:
+                continue
+
+            node_count += 1
+            if node_count % self.leaf_sample_rate:
+                continue
+            
             render_label(self.dwg, 
                             leaf.x, 
                             leaf.y, 
-                            angle_deg, 
+                            leaf.angle, 
                             leaf.taxon.label, 
                             self.leaf_font_size, 
                             self.leaf_font_color,

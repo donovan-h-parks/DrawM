@@ -25,6 +25,29 @@ __email__ = 'donovan.parks@gmail.com'
 __status__ = 'Development'
 
 
+from drawm.tree.newick_utils import parse_label
+
+
+def find_node(tree, label):
+    """Find node in tree."""
+    
+    if '|' in label:
+        try:
+            node = tree.mrca(taxon_labels=label.split('|'))
+        except:
+            node = None
+    else:
+        node = tree.find_node_with_taxon_label(label)
+        if not node:
+            for n in tree.preorder_internal_node_iter():
+                support, taxon, auxiliary_info = parse_label(n.label)
+                if label == taxon:
+                    node = n
+                    break
+                    
+    return node
+    
+
 def dist_to_ancestor(child, ancestor):
     """Calculate distance from child node to ancestor node."""
     

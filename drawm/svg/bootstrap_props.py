@@ -76,6 +76,8 @@ class BootstrapProps:
                 elif attribute == 'continuous_cm':
                     support_value, color = values
                     self.continuous_cm.append([float(support_value), color])
+                else:
+                    self.logger.warning('[BootstrapProps] Unexpected attribute: %s' % attribute)
                     
     def _linear_interpolate(self, value, min_value, max_value, min_color, max_color):
         """Linear interpolate color."""
@@ -117,7 +119,7 @@ class BootstrapProps:
                 c.stroke(color='black')
                 bs_legend_group.add(c)
                 
-                t = self.dwg.text('>%d%%' % support, 
+                t = self.dwg.text('>%g%%' % support, 
                                     x=[(legendX + 1.5*legend_radius)], 
                                     y=[(legendY + 0.35*self.font_size)], 
                                     font_size=self.font_size,
@@ -137,6 +139,9 @@ class BootstrapProps:
         self.dwg.add(bs_node_group)
         
         for node in tree.postorder_node_iter():
+            if node.is_collapsed:
+                continue
+                
             support, _taxon, _auxiliary_info = parse_label(node.label)
             if not support:
                 continue
@@ -158,7 +163,7 @@ class BootstrapProps:
             if color:
                 c = self.dwg.circle(center=(node.x, node.y), 
                                     r=self.node_radius,
-                                    id='support_%d' % support)
+                                    id='support_%g' % support)
                 c.stroke(color='black')
                 c.fill(color=color)
                 c = bs_node_group.add(c)

@@ -29,38 +29,43 @@ def color_str(r, g, b):
     return "rgb(%d,%d,%d)" % (int(r+0.5), int(g+0.5), int(b+0.5))
     
     
+def donut(dwg, x, y, inner_radius, outer_radius, color, opacity=1.0, group=None, id=None):
+    """Render a donut."""
+    
+    path = dwg.path("M%d,%d" % (x,y), id=id)
+    path.fill(color=color, opacity=opacity, rule='evenodd')
+    path.stroke(color=color, width=1)
+    
+    path.push("m%d,%d" % (0, -outer_radius))
+    path.push_arc(target=(1, 0), 
+                            rotation=0, 
+                            r=outer_radius,
+                            large_arc=True,
+                            angle_dir='-',
+                            absolute=False)
+    path.push("m%d,%d" % (0, outer_radius-inner_radius))
+    path.push_arc(target=(-1, 0), 
+                            rotation=0, 
+                            r=inner_radius,
+                            large_arc=True,
+                            angle_dir='+',
+                            absolute=False)
+
+    if group:
+        group.add(path)
+    else:
+        # add to 'root' group
+        dwg.add(t)
+    
 def render_label(dwg, x, y, angle, label, font_size, color, group=None):
     """Render label."""
+    
+    if label is None:
+        return
     
     # make sure angle is between -180 and 180
     if angle > 180:
         angle = angle - 360
-
-    # determine text offset for best visual quality
-    if -45 < angle <= 0:
-        x_offset_dir = 1
-        y_offset_dir = 1
-    elif -90 < angle <= -45:
-        x_offset_dir = 1
-        y_offset_dir = -1
-    elif -135 < angle <= -90:
-        x_offset_dir = -1
-        y_offset_dir = -1
-    elif -180 < angle <= -135:
-        x_offset_dir = -1
-        y_offset_dir = 1
-    elif 135 < angle <= 180:
-        x_offset_dir = -1
-        y_offset_dir = 1
-    elif 90 < angle <= 135:
-        x_offset_dir = 1
-        y_offset_dir = 1
-    elif 45 < angle <= 90:
-        x_offset_dir = -1
-        y_offset_dir = 1
-    elif 0 < angle <= 45:
-        x_offset_dir = 1
-        y_offset_dir = 1
 
     # determine rendering angle and direction of text
     text_anchor = 'start'
@@ -74,20 +79,16 @@ def render_label(dwg, x, y, angle, label, font_size, color, group=None):
         elif angle > 90:
             angle = angle - 180
 
-    label_x = x + x_offset_dir*0.5*font_size
-    label_y = y + y_offset_dir*0.35*font_size
     t = dwg.text(label, 
-                    x=[(label_x)], 
-                    y=[(label_y)], 
+                    x=[(x)], 
+                    y=[(y + 0.4*font_size)], 
                     font_size=font_size,
                     text_anchor=text_anchor,
                     direction=direction,
-                    #dominant_baseline="central",
-                    #dy=['5.3em'],
                     fill=color,
-                    id=label)
+                    id=label.replace(' ', '_'))
 
-    t.rotate(angle, (label_x, label_y))
+    t.rotate(angle, (x, y))
     
     if group:
         group.add(t)
