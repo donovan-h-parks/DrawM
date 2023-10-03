@@ -28,22 +28,27 @@ __status__ = 'Development'
 def color_str(r, g, b):
     return "rgb(%d,%d,%d)" % (int(r+0.5), int(g+0.5), int(b+0.5))
     
+
+def rgb_from_str(color_str):
+    rgb = color_str[4:-1]
+    return [int(c) for c in rgb.split(',')]
+    
     
 def donut(dwg, x, y, inner_radius, outer_radius, color, opacity=1.0, group=None, id=None):
     """Render a donut."""
     
-    path = dwg.path("M%d,%d" % (x,y), id=id)
+    path = dwg.path("M%f,%f" % (x,y), id=id)
     path.fill(color=color, opacity=opacity, rule='evenodd')
-    path.stroke(color=color, width=1)
+    #path.stroke(color=color, width=1)
     
-    path.push("m%d,%d" % (0, -outer_radius))
+    path.push("m%f,%f" % (0, -outer_radius))
     path.push_arc(target=(1, 0), 
                             rotation=0, 
                             r=outer_radius,
                             large_arc=True,
                             angle_dir='-',
                             absolute=False)
-    path.push("m%d,%d" % (0, outer_radius-inner_radius))
+    path.push("m%f,%f" % (0, outer_radius-inner_radius))
     path.push_arc(target=(-1, 0), 
                             rotation=0, 
                             r=inner_radius,
@@ -57,7 +62,16 @@ def donut(dwg, x, y, inner_radius, outer_radius, color, opacity=1.0, group=None,
         # add to 'root' group
         dwg.add(t)
     
-def render_label(dwg, x, y, angle, label, font_size, color, group=None):
+    
+def render_label(dwg, x, y, 
+                    angle, 
+                    label, 
+                    font_size, 
+                    color,
+                    middle_x=False,
+                    middle_y=False,                    
+                    group=None, 
+                    id_prefix=None):
     """Render label."""
     
     if label is None:
@@ -68,8 +82,8 @@ def render_label(dwg, x, y, angle, label, font_size, color, group=None):
         angle = angle - 360
 
     # determine rendering angle and direction of text
+    direction = 'ltr'   
     text_anchor = 'start'
-    direction = 'ltr'        
     if angle < -90 or angle > 90:
         text_anchor = 'end'
         direction = 'rtl'
@@ -78,18 +92,29 @@ def render_label(dwg, x, y, angle, label, font_size, color, group=None):
             angle = 180 + angle
         elif angle > 90:
             angle = angle - 180
+            
+    if middle_x:
+        text_anchor = 'middle'
+       
+    y_label = y
+    if middle_y:
+        y_label += 0.45*font_size
+                   
+    id_label = label.replace(' ', '_')
+    if id_prefix:
+        id_label = '%s_%s' % (id_prefix, id_label)
 
     t = dwg.text(label, 
                     x=[(x)], 
-                    y=[(y + 0.4*font_size)], 
-                    font_size=font_size,
+                    y=[(y_label)],
+                    font_size="%fpt" % font_size,
                     text_anchor=text_anchor,
                     direction=direction,
                     fill=color,
-                    id=label.replace(' ', '_'))
+                    id=id_label)
 
     t.rotate(angle, (x, y))
-    
+
     if group:
         group.add(t)
     else:

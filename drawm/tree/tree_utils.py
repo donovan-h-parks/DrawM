@@ -40,8 +40,8 @@ def find_node(tree, label):
         node = tree.find_node_with_taxon_label(label)
         if not node:
             for n in tree.preorder_internal_node_iter():
-                support, taxon, auxiliary_info = parse_label(n.label)
-                if label == taxon:
+                _support, taxon, _aux_info = parse_label(n.label)
+                if taxon and label in taxon.split(';'):
                     node = n
                     break
                     

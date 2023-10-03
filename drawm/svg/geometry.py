@@ -24,6 +24,8 @@ __maintainer__ = 'Donovan Parks'
 __email__ = 'donovan.parks@gmail.com'
 __status__ = 'Development'
 
+import math
+
 
 def polygon_centroid(pts):
     """Calculate centroid for polygon."""
@@ -51,6 +53,11 @@ def polygon_centroid(pts):
     c_y = c_y / (6*signed_area)
     
     return c_x, c_y
+
+    
+def unit_vector(v):
+    mag = length(v)
+    return v[0] / mag, v[1] / mag
     
 def length(v):
     return math.sqrt(v[0]**2+v[1]**2)

@@ -32,6 +32,7 @@ from collections import defaultdict
 
 import svgwrite
 
+from drawm.svg.geometry import unit_vector
 from drawm.svg.svg_utils import render_label
 from drawm.tree.newick_utils import parse_label
 from drawm.tree.tree_utils import find_node
@@ -40,21 +41,23 @@ from drawm.tree.tree_utils import find_node
 class LineageProps:
     """Visual attributed for named lineages."""
 
-    def __init__(self, config_file, dwg, inch, font_size):
+    def __init__(self, config_file, dwg, inch):
         """Read attributes from config file."""
         
         self.logger = logging.getLogger('timestamp')
         
         self.dwg = dwg
         self.inch = inch
-        self.font_size = font_size
-        
+
         self.show_lineages = False
         self.display_method = None
-        self.contour_width = 1
+        self.display_depth = 'MAX'
         self.font_size = None
         self.font_color = None
         self.lineage_map = {}
+        
+        if not config_file:
+            return # use default values
 
         with open(config_file) as f:
             prop_type = f.readline().strip()
@@ -75,15 +78,17 @@ class LineageProps:
                     display_method = values[0]
                     assert(display_method in ['OUTLINE_LINEAGE', 'ARC_LABELS'])
                     self.display_method = values[0]
-                elif attribute == 'contour_width':
-                    self.contour_width = float(values[0])
+                elif attribute == 'display_depth':
+                    display_depth = values[0]
+                    assert(display_depth in ['TIGHT', 'MAX'])
+                    self.display_depth = values[0]    
                 elif attribute == 'font_size':
-                    self.font_size = float(values[0])
+                    self.font_size = float(values[0]) * (self.inch/90.0)
                 elif attribute == 'font_color':
                     self.font_color = values[0]
                 elif attribute == 'lineage':
-                    lineage_name, color, alpha, stroke_width = values
-                    self.lineage_map[lineage_name] = (lineage_name, color, alpha, int(stroke_width))
+                    lineage_name, lineage_label, color, alpha, stroke_width = values
+                    self.lineage_map[lineage_name] = (lineage_name, lineage_label, color, alpha, int(stroke_width))
                 else:
                     self.logger.warning('[LineageProps] Unexpected attribute: %s' % attribute)
        
@@ -93,12 +98,20 @@ class LineageProps:
         if not self.show_lineages:
             return
             
+        self.logger.info('Rendering lineages.')
+            
         self._lineage_nodes(tree)
         
+        lineage_group = svgwrite.container.Group(id='lineage')
+        self.dwg.add(lineage_group)
+        
+        lineage_text_group = svgwrite.container.Group(id='lineage_text')
+        self.dwg.add(lineage_text_group)
+        
         if self.display_method == 'OUTLINE_LINEAGE':
-            self._render_outlines(tree)
+            self._render_outlines(tree, lineage_group, lineage_text_group)
         elif self.display_method == 'ARC_LABELS':
-            self._render_arc_labels(tree)
+            self._render_arc_labels(tree, lineage_group, lineage_text_group)
             
     def _lineage_nodes(self, tree):
         """Identify nodes in tree associated with lineages to render."""
@@ -114,15 +127,22 @@ class LineageProps:
             
         self.lineage_map = new_lineage_map
             
-    def _outline_circular(self, node, taxon, color, alpha, stroke_width, group):
+    def _outline_circular(self, 
+                            node, 
+                            taxon, 
+                            color, 
+                            alpha, 
+                            stroke_width, 
+                            lineage_group, 
+                            lineage_text_group):
         """Outline lineage in circular tree."""
         
-        path = self.dwg.path(id='lineage_%s' % taxon)
+        path = self.dwg.path(id='lineage_%s' % taxon.replace(' ', '_'))
         path.fill(color=color, opacity=alpha)
         path.stroke(color=color, width=stroke_width)
 
         # start at current node
-        path.push("M%d,%d" % (node.x, node.y))
+        path.push("M%f,%f" % (node.x, node.y))
         
         # descend 'right' of lineage
         right_branch = node.child_node_iter().next()
@@ -144,19 +164,19 @@ class LineageProps:
             if right_branch.is_leaf():
                 break
              
-            path.push("L%d,%d" % (right_branch.x, right_branch.y))
+            path.push("L%f,%f" % (right_branch.x, right_branch.y))
             right_branch = right_branch.child_node_iter().next()
 
         # move across children    
         last_leaf = None
         for leaf in node.leaf_iter():
-            path.push("L%d,%d" % (leaf.x, leaf.y))
+            path.push("L%f,%f" % (leaf.x, leaf.y))
             last_leaf = leaf
         
         # ascend 'left' of lineage
         left_branch = last_leaf
         while left_branch != node:
-            path.push("L%d,%d" % (left_branch.corner_x, left_branch.corner_y))
+            path.push("L%f,%f" % (left_branch.corner_x, left_branch.corner_y))
             
             # draw arc
             angle_dir = '+'
@@ -174,9 +194,17 @@ class LineageProps:
 
             left_branch = left_branch.parent_node
 
-        group.add(path)
+        lineage_group.add(path)
                 
-    def _outline_rectangular(self, node, lineage_name, color, alpha, stroke_width, group):
+    def _outline_rectangular(self,
+                                tree,
+                                node, 
+                                taxon, 
+                                color, 
+                                alpha, 
+                                stroke_width, 
+                                lineage_group, 
+                                lineage_text_group):
         """Outline lineage in circular tree."""
         
         # get top and bottom leaf nodes
@@ -187,27 +215,42 @@ class LineageProps:
         # determine start and end of rectangle covering lineage
         start_x = node.x
         end_x = 0
-        for leaf in node.leaf_iter():
-            if leaf.x > end_x:
-                end_x = leaf.x
+        if self.display_depth == 'MAX':
+            end_x = tree.width + tree.start_x
+        elif self.display_depth == 'TIGHT':
+            for leaf in node.leaf_iter():
+                if leaf.x > end_x:
+                    end_x = leaf.x
                 
         start_y = start_leaf.y
         end_y = end_leaf.y
         
         rect = self.dwg.rect(insert=(start_x, start_y),
                                 size=(abs(end_x-start_x), abs(end_y-start_y)),
-                                id='lineage_%s' % lineage_name)
+                                id='lineage_%s' % taxon.replace(' ', '_'))
         rect.fill(color=color, opacity=alpha)
         rect.stroke(color=color, width=stroke_width)
         
-        group.add(rect)
+        lineage_group.add(rect)
+
+        # render label
+        label_x = end_x + 0.05*self.inch
+        label_y = 0.5*(start_y + end_y)
+
+        render_label(self.dwg, 
+                        label_x, 
+                        label_y, 
+                        0, 
+                        taxon, 
+                        self.font_size, 
+                        self.font_color,
+                        middle_y=True,
+                        group=lineage_text_group,
+                        id_prefix='lineage_text')
             
-    def _render_outlines(self, tree):
+    def _render_outlines(self, tree, lineage_group, lineage_text_group):
         """Color named lineages."""
-        
-        lineage_group = svgwrite.container.Group(id='lineage_outline')
-        self.dwg.add(lineage_group)
-        
+                
         for node in tree.preorder_node_iter(lambda n: not n.is_leaf()):
             support, taxon, auxiliary_info = parse_label(node.label)
             if node in self.lineage_map:
@@ -215,21 +258,32 @@ class LineageProps:
                 if node.is_collapsed or node.is_collapsed_root:
                     continue
                     
-                lineage_name, color, alpha, stroke_width = self.lineage_map[node]
+                lineage_name, lineage_label, color, alpha, stroke_width = self.lineage_map[node]
                 
                 if tree.display_method == 'CIRCULAR':
-                    self._outline_circular(node, lineage_name, color, alpha, stroke_width, lineage_group)
+                    self._outline_circular(node, 
+                                            lineage_label, 
+                                            color, 
+                                            alpha, 
+                                            stroke_width, 
+                                            lineage_group, 
+                                            lineage_text_group)
                 elif tree.display_method == 'RECTANGULAR':
-                    self._outline_rectangular(node, lineage_name, color, alpha, stroke_width, lineage_group)
+                    self._outline_rectangular(tree,
+                                                node, 
+                                                lineage_label, 
+                                                color, 
+                                                alpha, 
+                                                stroke_width, 
+                                                lineage_group, 
+                                                lineage_text_group)
                 
-    def _render_arc_labels(self, tree):
+    def _render_arc_labels(self, tree, lineage_group, lineage_text_group):
         """Color named lineages."""
-        
-        lineage_arc_group = svgwrite.container.Group(id='lineage_arc')
-        self.dwg.add(lineage_arc_group)
-        
+
         rel_depth = 1.00
         label_depth = defaultdict(int)
+        labels = []
         for node in tree.postorder_node_iter():
             support, taxon, auxiliary_info = parse_label(node.label)
             
@@ -258,7 +312,7 @@ class LineageProps:
                         deepest_x = leaf.x
                 
                 # draw arc
-                lineage_name, color, alpha, stroke_width = self.lineage_map[node]
+                lineage_name, lineage_label, color, alpha, stroke_width = self.lineage_map[node]
     
                 label_depth[node.id] = max_child_label_depth+1
                 
@@ -276,51 +330,70 @@ class LineageProps:
                         #angle_dir = '-'
                         large_arc=True
      
-                    depth = deepest_rel_depth * (1.0 + 0.05*label_depth[node.id])
-
-                    start_angle_rad = math.radians(start_leaf.angle)
-                    start_x = depth * math.cos(start_angle_rad) + 0.5*self.dwg.canvas_width
-                    start_y = depth * math.sin(start_angle_rad) + 0.5*self.dwg.canvas_height
+                    if self.display_depth == 'MAX':
+                        depth = tree.height
+                    elif self.display_depth == 'TIGHT':
+                        depth = deepest_rel_depth
                     
-                    end_angle_rad = math.radians(end_leaf.angle)
-                    end_x = depth * math.cos(end_angle_rad) + 0.5*self.dwg.canvas_width
-                    end_y = depth * math.sin(end_angle_rad) + 0.5*self.dwg.canvas_height
-                        
-                    p = self.dwg.path('m%d,%d' % (start_x, start_y), id='lineage_%s' % lineage_name)
+                    depth += 0.05*self.inch*label_depth[node.id]
+
+                    start_x = depth * start_leaf.x_dir + 0.5*self.dwg.canvas_width
+                    start_y = depth * start_leaf.y_dir + 0.5*self.dwg.canvas_height
+
+                    end_x = depth * end_leaf.x_dir + 0.5*self.dwg.canvas_width
+                    end_y = depth * end_leaf.y_dir + 0.5*self.dwg.canvas_height
+ 
+                    p = self.dwg.path('M%f,%f' % (start_x, start_y), 
+                                        id='lineage_%s' % lineage_label.replace(' ', '_'))
                     p.push_arc(target=(end_x, end_y), 
                                 rotation=0, 
                                 r=depth,
                                 large_arc=large_arc,
                                 angle_dir=angle_dir,
                                 absolute=True)
-                    p.fill(color='none')
-                    p.stroke(color=color, width=stroke_width)
-                    lineage_arc_group.add(p)
+   
+                    x = 0.5 * (start_leaf.x_dir + end_leaf.x_dir)
+                    y = 0.5 * (start_leaf.y_dir + end_leaf.y_dir)
+                    x_dir, y_dir = unit_vector((x,y))
+                    if large_arc:
+                        y_dir *= -1
+                        x_dir *= -1
                     
-                    label_angle = (0.5*(start_leaf.angle + end_leaf.angle)) % 360
-                    label_angle_rad = math.radians(label_angle)
-                    label_x = depth * math.cos(label_angle_rad) + 0.5*self.dwg.canvas_width + stroke_width
-                    label_y = depth * math.sin(label_angle_rad) + 0.5*self.dwg.canvas_height + stroke_width
+                    label_x = (depth + 0.5*stroke_width + 0.02*self.inch) * x_dir + 0.5*self.dwg.canvas_width
+                    label_y = (depth + 0.5*stroke_width + 0.02*self.inch) * y_dir + 0.5*self.dwg.canvas_height
+                    label_angle = math.degrees(math.atan2(y_dir, x_dir))
                 elif tree.display_method == 'RECTANGULAR':
-                    depth = deepest_x + 0.01*label_depth[node.id]*tree.width
-
+                    if self.display_depth == 'MAX':
+                        depth = tree.width + tree.start_x
+                    elif self.display_depth == 'TIGHT':
+                        depth = deepest_x
+                    
+                    depth += 0.05*self.inch*label_depth[node.id]
+                    
                     p = self.dwg.line(start=(depth, start_leaf.y), 
                                         end=(depth, end_leaf.y),
-                                        id='lineage_%s' % lineage_name)
-                    p.fill(color='none')
-                    p.stroke(color=color, width=stroke_width)
-                    lineage_arc_group.add(p)
-                    
-                    label_x = depth + stroke_width
+                                        id='lineage_%s' % lineage_label.replace(' ', '_'))
+                                        
+                    label_x = depth + 0.5*stroke_width
                     label_y = 0.5*(start_leaf.y + end_leaf.y)
                     label_angle = 0
                     
-                render_label(self.dwg, 
-                                label_x, 
-                                label_y, 
-                                label_angle, 
-                                taxon, 
-                                self.font_size, 
-                                self.font_color,
-                                lineage_arc_group)
-   
+                p.fill(color='none')
+                p.stroke(color=color, opacity=alpha, width=stroke_width)
+                lineage_group.add(p)
+                
+                labels.append((lineage_label, label_x, label_y, label_angle))
+            
+        # render arc labels after arcs to ensure text is on top
+        for lineage_label, label_x, label_y, label_angle in labels:
+            render_label(self.dwg, 
+                            label_x, 
+                            label_y, 
+                            label_angle, 
+                            lineage_label, 
+                            self.font_size, 
+                            self.font_color,
+                            middle_y=True,
+                            group=lineage_text_group,
+                            id_prefix='lineage_text')
+       

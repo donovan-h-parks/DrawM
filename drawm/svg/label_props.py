@@ -39,28 +39,27 @@ from drawm.tree.newick_utils import parse_label
 class LabelProps:
     """Visual attributed for internal and leaf labels."""
 
-    def __init__(self, config_file, dwg, tree_height, inch, font_size):
+    def __init__(self, config_file, dwg, inch):
         """Read attributes from config file."""
         
         self.logger = logging.getLogger('timestamp')
         
         self.dwg = dwg
-        self.tree_height = tree_height
         self.inch = inch
-        self.font_size = font_size
-        
-        self.node_radius = 0.005 * self.tree_height
         
         self.show_leaf_labels = False
         self.show_internal_labels = False
         
-        self.internal_font_size = None
-        self.internal_font_color = None
+        self.internal_font_size = 10
+        self.internal_font_color = 'rgb(0,0,0)'
         self.internal_sample_rate = 1
         
-        self.leaf_font_size = None
-        self.leaf_font_color = None
+        self.leaf_font_size = 10
+        self.leaf_font_color = 'rgb(0,0,0)'
         self.leaf_sample_rate = 1
+        
+        if not config_file:
+            return # use default values
 
         with open(config_file) as f:
             prop_type = f.readline().strip()
@@ -80,13 +79,13 @@ class LabelProps:
                 elif attribute == 'show_internal_labels':
                     self.show_internal_labels = (values[0] == 'True')
                 elif attribute == 'internal_font_size':
-                    self.internal_font_size = int(values[0])
+                    self.internal_font_size = float(values[0]) * (self.inch/90.0)
                 elif attribute == 'internal_font_color':
                     self.internal_font_color = values[0]
                 elif attribute == 'internal_sample_rate':
                     self.internal_sample_rate = int(values[0])
                 elif attribute == 'leaf_font_size':
-                    self.leaf_font_size = int(values[0])
+                    self.leaf_font_size = float(values[0]) * (self.inch/90.0)
                 elif attribute == 'leaf_font_color':
                     self.leaf_font_color = values[0]
                 elif attribute == 'leaf_sample_rate':
@@ -97,8 +96,6 @@ class LabelProps:
     def _render_internal_labels(self, tree):
         """Render internal labels."""
     
-        font_size = 0.5*self.font_size
-        
         label_group = svgwrite.container.Group(id='internal_node_labels')
         self.dwg.add(label_group)
         
@@ -112,19 +109,20 @@ class LabelProps:
                 continue
                 
             _support, taxon, _auxiliary_info = parse_label(node.label)
-            render_label(self.dwg, 
-                            node.x, 
-                            node.y, 
+            offset = 0.02*self.inch
+            render_label(self.dwg,
+                            node.x + offset*node.x_dir, 
+                            node.y + offset*node.y_dir, 
                             node.angle, 
                             taxon, 
                             self.internal_font_size, 
                             self.internal_font_color,
-                            label_group)
+                            middle_y=True,
+                            group=label_group,
+                            id_prefix='internal_label')
 
     def _render_leaf_labels(self, tree):
         """"Render labels for extant taxa."""
-        
-        font_size = 0.5*self.font_size
         
         label_group = svgwrite.container.Group(id='leaf_node_labels')
         self.dwg.add(label_group)
@@ -138,14 +136,17 @@ class LabelProps:
             if node_count % self.leaf_sample_rate:
                 continue
             
+            offset = 0.02*self.inch
             render_label(self.dwg, 
-                            leaf.x, 
-                            leaf.y, 
+                            leaf.x + offset*leaf.x_dir, 
+                            leaf.y + offset*leaf.y_dir, 
                             leaf.angle, 
                             leaf.taxon.label, 
                             self.leaf_font_size, 
                             self.leaf_font_color,
-                            label_group)
+                            middle_y=True,
+                            group=label_group,
+                            id_prefix='leaf_label')
                     
     def render(self, tree):
         """Render labels."""

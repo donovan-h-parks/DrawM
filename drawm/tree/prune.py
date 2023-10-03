@@ -52,8 +52,11 @@ class Prune(object):
         # read taxa to retain
         taxa_to_retain = set()
         for line in open(taxa_to_retain_file):
-            if line.strip():
-                taxa_to_retain.add(line.strip())
+            if line[0] == '#' or not line.strip():
+                continue
+                
+            line_split = line.strip().split('\t')
+            taxa_to_retain.add(line_split[0])
   
         # find taxa to retain
         self.logger.info('Identifying taxa to retain.')

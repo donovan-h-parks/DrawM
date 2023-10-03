@@ -31,28 +31,30 @@ import math
 
 import svgwrite
 
-from drawm.svg.svg_utils import donut
+from drawm.svg.svg_utils import donut, render_label
 
 
 class ContourProps:
     """Visual attributed for contours."""
 
-    def __init__(self, config_file, dwg, tree_height, inch, font_size):
+    def __init__(self, config_file, dwg, inch):
         """Read attributes from config file."""
         
         self.logger = logging.getLogger('timestamp')
 
         self.dwg = dwg
-        self.tree_height = tree_height
         self.inch = inch
-        self.font_size = font_size
-        
-        self.node_radius = 0.005 * self.tree_height
-        
+
         self.show_contours = False
         self.contour_width = None
         self.contour_file = None
+        self.show_legend = False
+        self.font_size = 10
+        self.font_color = 'rgb(0,0,0)'
         self.contour_cm = []
+        
+        if not config_file:
+            return # use default values
         
         with open(config_file) as f:
             prop_type = f.readline().strip()
@@ -72,10 +74,17 @@ class ContourProps:
                 elif attribute == 'contour_method':
                     self.contour_method = values[0]
                     assert (self.contour_method in ['CONCENTRIC', 'BY_FILE'])
-                elif self.contour_method == 'BY_FILE' and attribute == 'contour_file':
-                    self.contour_file = values[0]
+                elif attribute == 'contour_file':
+                    self.contour_file = os.path.join(os.path.split(config_file)[0], 
+                                                        values[0])
                 elif attribute == 'contour_width':
                     self.contour_width = float(values[0])
+                elif attribute == 'show_legend':
+                    self.show_legend = (values[0] == 'True')
+                elif attribute == 'font_size':
+                    self.font_size = float(values[0]) * (self.inch/90.0)
+                elif attribute == 'font_color':
+                    self.font_color = values[0]
                 elif attribute == 'contour_cm':
                     outer_threshold, inner_threshold, color, alpha, label = values
                     self.contour_cm.append((float(outer_threshold), float(inner_threshold), color, float(alpha), label))
@@ -90,7 +99,9 @@ class ContourProps:
             
         if self.contour_method != 'BY_FILE':
             return
-        
+            
+        self.logger.info('Decorating tree with contour information.')
+
         contours = {}
         for line in open(self.contour_file):
             if line[0] == '#':
@@ -108,36 +119,39 @@ class ContourProps:
                             
             node.contour = contour_value
         
-    def render_legend(self):
+    def render_legend(self, tree):
         """Render legend."""
         
-        if not self.show_contours:
+        if not self.show_contours or not self.show_legend:
             return
             
-        legend_radius = 2*self.node_radius
-        legend_step = 2*2*legend_radius
+        legend_radius = 0.4*1.25*self.font_size
+        legend_step = 1.25*self.font_size + 0.02*self.inch
         
         legendX = 0.1*self.inch
         legendY = 0.1*self.inch
         
-        legend_group = svgwrite.container.Group(id='contour_legend')
+        legend_group = svgwrite.container.Group(id='contour_legend',
+                                                    style='font-family:Arial')
         self.dwg.add(legend_group)
 
         for item_index, (outer_threshold, inner_threshold, color, alpha, label) in enumerate(self.contour_cm):
-            c = self.dwg.circle(center=(legendX, legendY), 
+            c = self.dwg.circle(center=(legendX + legend_radius, legendY), 
                                 r=legend_radius,
                                 id='contour_legend_symbol_%d' % item_index)
             c.fill(color=color, opacity=alpha)
             c.stroke(color='black')
             legend_group.add(c)
-
-            t = self.dwg.text('%s: %g to %g' % (label, inner_threshold, outer_threshold), 
-                                x=[(legendX + 1.5*legend_radius)], 
-                                y=[(legendY + 0.35*self.font_size)], 
-                                font_size=self.font_size,
-                                fill='black',
-                                id='contour_legend_label_%d' % item_index)
-            legend_group.add(t)
+            
+            render_label(self.dwg, 
+                            legendX + 2*legend_radius + 0.02*self.inch, 
+                            legendY, 
+                            0, 
+                            '%s' % label, 
+                            self.font_size, 
+                            self.font_color,
+                            middle_y=True,
+                            group=legend_group)
                 
             legendY += legend_step
             
@@ -199,27 +213,27 @@ class ContourProps:
             inner_pts, inner_nodes = self._contour_pts(tree, inner_threshold)
 
             # draw outer contour
-            path = self.dwg.path("M%d,%d" % outer_pts[0], id='contour_%d' % index)
+            path = self.dwg.path("M%f,%f" % outer_pts[0], id='contour_%d' % index)
             path.fill(color=color, opacity=alpha, rule='evenodd')
             path.stroke(color=color, width=self.contour_width)
 
             for pt in outer_pts[1:]:
-                path.push("L%d,%d" % pt)
+                path.push("L%f,%f" % pt)
                    
             # draw inner ring of contour
-            path.push("L%d,%d" % inner_pts[-1])
+            path.push("L%f,%f" % inner_pts[-1])
             for pt in inner_pts[::-1]:
-                path.push("L%d,%d" % pt)
+                path.push("L%f,%f" % pt)
                 
             # this improves the visual quality for trees that
             # only have deep nodes near the end of the tree
             angle_rad = math.radians(outer_nodes[0].angle)
             visual_x = inner_nodes[0].rel_depth * math.cos(angle_rad) + 0.5*self.dwg.canvas_width
             visual_y = inner_nodes[0].rel_depth * math.sin(angle_rad) + 0.5*self.dwg.canvas_height
-            path.push("L%d,%d" % (visual_x,visual_y))
+            path.push("L%f,%f" % (visual_x,visual_y))
 
             # connect the inner and outer contours
-            path.push("L%d,%d" % outer_pts[0])
+            path.push("L%f,%f" % outer_pts[0])
                 
             contour_group.add(path)
         
@@ -230,25 +244,29 @@ class ContourProps:
         self.dwg.add(contour_group)
         
         for index, (outer_threshold, inner_threshold, color, alpha, label) in enumerate(self.contour_cm):
-            donut(self.dwg, 
-                    tree.seed_node.x, tree.seed_node.x, 
-                    inner_threshold*self.tree_height, outer_threshold*self.tree_height, 
-                    color, opacity=alpha, 
-                    group=contour_group, id='contour_%d' % index)
-            if False:
-                c = self.dwg.circle(center=(tree.seed_node.x, tree.seed_node.x), 
-                                    r=outer_threshold*self.tree_height,
+            if tree.display_method == 'CIRCULAR':
+                donut(self.dwg, 
+                        tree.seed_node.x, tree.seed_node.x, 
+                        inner_threshold*tree.height, outer_threshold*tree.height, 
+                        color, opacity=alpha, 
+                        group=contour_group, id='contour_%d' % index)
+            elif tree.display_method == 'RECTANGULAR':
+                border_x = 0.5*(self.dwg.canvas_width - tree.width)
+                border_y = 0.5*(self.dwg.canvas_height - tree.height)
+                
+                p = self.dwg.rect((border_x+inner_threshold*tree.width, border_y), 
+                                    ((outer_threshold-inner_threshold)*tree.width,tree.height), 
                                     id='contour_%d' % index)
-                c.fill('none')
-                c.stroke(color=color, 
-                            width=self.contour_width)
-                contour_group.add(c)  
-        
+                p.fill(color=color, opacity=alpha)
+                contour_group.add(p)
+
     def render_contour(self, tree):
         """Render contour."""
         
         if not self.show_contours:
             return
+            
+        self.logger.info('Rendering contours.')
             
         contour_group = svgwrite.container.Group(id='contour')
         self.dwg.add(contour_group)

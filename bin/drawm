@@ -75,7 +75,7 @@ if __name__ == '__main__':
     draw_parser.add_argument('output_prefix', help='prefix for output files')
     draw_parser.add_argument('--width', help='width of image in inches', type=float, default=6.5)
     draw_parser.add_argument('--height', help='height of image in inches', type=float, default=6.5)
-    draw_parser.add_argument('--dpi', help='resolution of image (dots per inch)', type=int, default=600)
+    draw_parser.add_argument('--dpi', help='resolution of image (dots per inch)', type=int, default=90)
     draw_parser.add_argument('--silent', help="suppress output of logger", action='store_true')
     
     # Reroot command
@@ -88,7 +88,7 @@ if __name__ == '__main__':
     reroot_parser.add_argument('--outgroup', nargs='*', help='taxa comprising outgroup')
     reroot_parser.add_argument('--silent', help="suppress output of logger", action='store_true')
     
-    # Prunt command
+    # Prune command
     prune_parser = subparsers.add_parser('prune',
                                             formatter_class=CustomHelpFormatter,
                                             description='Prune tree to a specific set of extant taxa.')

@@ -26,8 +26,8 @@ from drawm.svg.bootstrap_props import BootstrapProps
 from drawm.svg.contour_props import ContourProps
 from drawm.svg.label_props import LabelProps
 from drawm.svg.lineage_props import LineageProps
+from drawm.svg.symbol_props import SymbolProps
 from drawm.svg.tree_props import TreeProps
-
 
 class DrawTree(object):
     """Create SVG image of tree in Newick format."""
@@ -51,11 +51,15 @@ class DrawTree(object):
                         'contour_props',
                         'label_props',
                         'lineage_props',
+                        'symbol_props',
                         'tree_props'])
                         
         config_file_dir = os.path.split(os.path.abspath(config_file))[0]
         
         prop_files = {}
+        for prop in props:
+            prop_files[prop] = None
+            
         for line in open(config_file):
             if line[0] == '#' or not line.strip():
                 continue
@@ -108,7 +112,8 @@ class DrawTree(object):
         self.logger.info('Setting up SVG file.')
         svg_output = output_prefix + '.svg'
         dwg = svgwrite.Drawing(filename=svg_output, 
-                                    size=(canvas_width, canvas_height))
+                                    size=(canvas_width, canvas_height),
+                                    profile='full')
         dwg.set_desc(title='DrawM rendering of %s' % tree_name, desc=tree_name)
         dwg.canvas_width = canvas_width
         dwg.canvas_height = canvas_height
@@ -126,51 +131,43 @@ class DrawTree(object):
         
         tree_props = TreeProps(prop_files['tree_props'], 
                                 prop_files['collapse_props'],
-                                dwg,
-                                dpi)
+                                dwg, dpi)
                                             
         bootstrap_props = BootstrapProps(prop_files['bootstrap_props'],
-                                            dwg,
-                                            tree_props.height,
-                                            dpi,
-                                            font_size)
+                                            dwg, dpi)
                                             
         contour_props = ContourProps(prop_files['contour_props'],
-                                        dwg,
-                                        tree_props.height,
-                                        dpi,
-                                        font_size)
+                                        dwg, dpi)
                                             
         lineage_props = LineageProps(prop_files['lineage_props'],
-                                        dwg,
-                                        dpi,
-                                        font_size)
+                                        dwg, dpi)
                                             
         label_props = LabelProps(prop_files['label_props'],
-                                        dwg,
-                                        tree_props.height,
-                                        dpi,
-                                        font_size)
-        
+                                        dwg, dpi)
+                                        
+        symbol_props = SymbolProps(prop_files['symbol_props'],
+                                        dwg, dpi)
+
         # read and ladderize tree
         tree = tree_props.read_tree(input_tree)
         tree_props.layout(tree)
-                                           
+
         contour_props.decorate(tree)
-                                                           
         contour_props.render_contour(tree)
-        contour_props.render_legend()
+        contour_props.render_legend(tree)
         
         lineage_props.render(tree)
    
         tree_props.render(tree)
-        tree_props.render_scale_bar()
-        tree_props.render_scale_lines()
+        tree_props.render_scale_bar(tree)
+        tree_props.render_scale_lines(tree)
         
         bootstrap_props.render(tree)
-        bootstrap_props.render_legend()
+        bootstrap_props.render_legend(tree)
         
         label_props.render(tree)
+        
+        symbol_props.render(tree)
         
         self.logger.info('Saving SVG image.')
         dwg.save()
